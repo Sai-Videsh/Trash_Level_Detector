@@ -7,8 +7,8 @@ in the same way, the bin gets filled. whe the bin gets filled (100%), then if yo
 
  after this, the data will be stored in firebase software in a organised manner. then the data will be collected from Firebase and plot graphs and a pie Chart on that data. For some security reasons, Packet Encryption is also enabled, like using cryptography module , the data while sending and collecting from firebase, it'll be encrypted with a header, that prevents from misuse of packets from others.
 
-files and their use:\n
-  \twaste_detec.py : main file , that operate wiht IOT pro kit and connect sensors with software\n
+files and their use:&nbsp;&nbsp;
+  waste_detec.py : main file , that operate wiht IOT pro kit and connect sensors with software
   graph.py: for showing some visual data interpretation
   current_level.txt : this shows the current updated level of trash can
   secret.key : a .key file downloaded from firebase
