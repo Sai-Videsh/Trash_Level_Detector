@@ -3,111 +3,146 @@ from firebase_admin import credentials, db
 import matplotlib.pyplot as plt
 from collections import Counter
 import datetime
+import sqlite3
+import pandas as pd
+from cryptography.fernet import Fernet
+import base64
+import json
+
+# Generate and store the encryption key securely (for demo purposes, using a static key)
+ENCRYPTION_KEY = b'GKMv5Xd7yIC2NoB9EjJ0uV2y-tyPBJg41Uj1iz5BvVk='
+cipher_suite = Fernet(ENCRYPTION_KEY)
 
 # Firebase Admin SDK setup
-cred = credentials.Certificate('/home/pi/Desktop/SAI_VIDESH_WDS/trash-level-5397d-firebase-adminsdk-fbsvc-93e77e529a.json')
+cred = credentials.Certificate(r'C:\Users\saivi\OneDrive\Desktop\My folder\Academics\ESIOT\Trash_Level\trash-level-5397d-firebase-adminsdk-fbsvc-93e77e529a.json');
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://trash-level-5397d-default-rtdb.firebaseio.com/'  # Correct URL
+    'databaseURL': 'https://trash-level-5397d-default-rtdb.firebaseio.com/'
 })
 
-history_ref = db.reference('trash_level_history')  # Reference for history
+history_ref = db.reference('trash_level_history')
 
-# Retrieve data from Firebase
+# Connect to SQLite database (or create if it doesn't exist)
+conn = sqlite3.connect('trash_data.db')
+cursor = conn.cursor()
+
+# Create table if it doesn't exist
+cursor.execute('''CREATE TABLE IF NOT EXISTS trash_data (
+                    id TEXT PRIMARY KEY,
+                    level INTEGER,
+                    weight REAL,
+                    product_type TEXT,
+                    timestamp TEXT
+                )''')
+conn.commit()
+
+
+# def store_trash_data(record_id, data):
+#     encrypted_data = {
+#         "level": encrypt_data(str(data["level"])),  
+#         "weight": encrypt_data(str(data["weight"])),
+#         "product_type": encrypt_data(data["product_type"])
+#     }
+#     history_ref.child(record_id).set(encrypted_data)
+
+def encrypt_data(data):
+    json_data = json.dumps(data)
+    encrypted_data = cipher_suite.encrypt(json_data.encode())
+    return base64.urlsafe_b64encode(encrypted_data).decode()
+
+# Decrypt data after retrieving from Firebase
+def decrypt_data(encrypted_data):
+    try:
+        if isinstance(encrypted_data, dict):  
+            return encrypted_data  # Data is already in JSON format
+        decrypted_data = cipher_suite.decrypt(base64.urlsafe_b64decode(encrypted_data.encode()))
+        return json.loads(decrypted_data.decode())
+    except Exception as e:
+        print(f"Decryption Error: {e}")
+        return None
+
+
 def get_firebase_data():
-    # Fetch all history records from Firebase
-    history_data = history_ref.get()
-    return history_data
+    encrypted_data = history_ref.get()
+    if encrypted_data:
+        decrypted_records = {key: decrypt_data(value) for key, value in encrypted_data.items() if decrypt_data(value) is not None}
 
-# 1. Bar Graph for number of times a particular % is reached (15%, 70%, 90%, 100%)
+        for record_id, record in decrypted_records.items():
+            cursor.execute('''INSERT OR REPLACE INTO trash_data (id, level, weight, product_type, timestamp) 
+                              VALUES (?, ?, ?, ?, ?)''', 
+                           (record_id, record.get('level', None), record.get('weight', None), 
+                            record.get('product_type', None), record.get('timestamp', None)))
+        conn.commit()
+        return decrypted_records
+    return {}
+
+
+def load_excel_data():
+    return pd.read_excel('trash_data_1.xlsx')
+
 def plot_trash_level_bargraph():
-    history_data = get_firebase_data()
-    
-    # Count occurrences of trash levels
-    trash_level_counts = Counter()
-    for record in history_data.values():
-        if 'level' in record:
-            level = record['level']
-            if level in [15, 70, 90, 100]:
-                trash_level_counts[level] += 1
-    
-    # Plot the bar graph
-    levels = [15, 70, 90, 100]
-    counts = [trash_level_counts[level] for level in levels]
+    df = load_excel_data()
 
-    plt.bar(levels, counts, color='skyblue')
+    # Convert 'level' column to numeric, forcing errors to NaN, then dropping NaN values
+    df['level'] = pd.to_numeric(df['level'], errors='coerce')
+    df = df.dropna(subset=['level'])  # Remove rows with invalid data in 'level' column
+    df['level'] = df['level'].astype(int)  # Convert to integer type
+
+    trash_level_counts = df['level'].value_counts().sort_index()
+
+    plt.figure(figsize=(6, 4))
+    plt.bar(trash_level_counts.index, trash_level_counts.values, color='skyblue')
     plt.xlabel('Trash Level (%)')
     plt.ylabel('Number of Times Reached')
     plt.title('Number of Times Each Trash Level is Reached')
-    plt.xticks(levels)
     plt.show()
 
-# 2. Number of times the trash bin overflowed (Reached 100%)
+
 def count_overflows():
-    history_data = get_firebase_data()
-    
-    overflow_count = 0
-    for record in history_data.values():
-        if 'level' in record and record['level'] == 100:
-            overflow_count += 1
-    
-    print(f"Number of times the trash bin overflowed: {overflow_count}")
+    df = load_excel_data()
+    overflow_count = (df['level'] == 100).sum()
+    # print(f"Number of times the trash bin overflowed: 5{overflow_count}")
 
-# 3. Pie Chart for Biodegradable vs Non-Biodegradable
 def plot_bio_nonbio_pie_chart():
-    history_data = get_firebase_data()
-    
-    bio_count = 0
-    non_bio_count = 0
-    
-    for record in history_data.values():
-        if 'product_type' in record:
-            product_type = record['product_type'].lower()
-            if product_type == 'bio':
-                bio_count += 1
-            elif product_type == 'non-bio':
-                non_bio_count += 1
-    
-    # Plot pie chart
-    labels = 'Biodegradable', 'Non-Biodegradable'
-    sizes = [bio_count, non_bio_count]
-    colors = ['lightgreen', 'lightcoral']
-    plt.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
-    plt.title('Biodegradable vs Non-Biodegradable Trash')
-    plt.axis('equal')  # Equal aspect ratio ensures the pie chart is a circle
+    df = load_excel_data()
+    product_types = ['bio', 'non-bio']
+    counts = [df[df['product_type'].str.lower() == p].shape[0] for p in product_types]
+
+    labels = ['Biodegradable', 'Non-Biodegradable']
+    colors = ['#ff9999', '#66b3ff']
+
+    plt.figure(figsize=(6, 6))
+    plt.pie(counts, labels=labels, autopct='%1.1f%%', startangle=60, colors=colors, wedgeprops={'linewidth': 1, 'edgecolor': 'black'})
+    plt.title('Biodegradable vs Non-Biodegradable Waste')
+    plt.axis('equal')
+    plt.tight_layout()
     plt.show()
 
-# 4. Line Graph for Weight vs Frequency of Collection (Thresholding weight)
+
+
 def plot_weight_vs_frequency():
-    history_data = get_firebase_data()
+    df = load_excel_data()
     
-    # Dictionary to count weights (rounded off as required)
-    weight_counts = {}
+    # Convert 'weight' column to numeric, forcing errors to NaN, then drop NaN values
+    df['weight'] = pd.to_numeric(df['weight'], errors='coerce')
+    df = df.dropna(subset=['weight'])
     
-    for record in history_data.values():
-        if 'weight' in record:
-            weight = record['weight']
-            # Thresholding and rounding off weight (based on your requirement)
-            rounded_weight = int(round(weight / 50) * 50)  # Adjust the scale of 50kg as a threshold
-            if rounded_weight in weight_counts:
-                weight_counts[rounded_weight] += 1
-            else:
-                weight_counts[rounded_weight] = 1
+    # Convert to integers before grouping
+    df['weight_rounded'] = (df['weight'] // 50) * 50
     
-    # Prepare the data for plotting
-    weights = sorted(weight_counts.keys())
-    frequencies = [weight_counts[weight] for weight in weights]
-    
-    # Plot the normal line graph
-    plt.plot(weights, frequencies, marker='o')
+    weight_counts = df['weight_rounded'].value_counts().sort_index()
+    plt.figure(figsize=(6, 4))
+    plt.plot(weight_counts.index, weight_counts.values, marker='o', linestyle='-', color='blue')
     plt.xlabel('Weight (kg)')
     plt.ylabel('Number of Times Collected')
     plt.title('Weight vs Number of Times Object Collected')
     plt.grid(True)
     plt.show()
 
-# Call the functions to plot the graphs
+
 if __name__ == '__main__':
-    plot_trash_level_bargraph()  # Plot the bar graph for trash levels
-    count_overflows()  # Count the number of overflows
-    plot_bio_nonbio_pie_chart()  # Plot the pie chart for biodegradable vs non-biodegradable
-    plot_weight_vs_frequency()  # Plot the weight vs frequency graph
+    get_firebase_data()  # Fetch data from Firebase to store in SQLite
+    plot_trash_level_bargraph()
+    count_overflows()
+    plot_bio_nonbio_pie_chart()
+    plot_weight_vs_frequency()
+
