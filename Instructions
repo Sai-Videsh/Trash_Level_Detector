@@ -4,9 +4,11 @@ step 1: type the following command in terminal "pip install cryptography firebas
 
 step 2: RPIO will be installed only in raspberry pi OS, if it's not installed , install it using sudo apt "sudo apt-get install python3-rpi.gpio"
 
-step 3: download all the excel files and database files given
+step 3: download all the excel files and database files given, those are already taken sample data
 
-step 4: change the path in the cred variable in graph.py , give the path of the json file downloaded (current folder) 
+step 4: make an account in firebase, and download .json file, .key file to current folder , and change the database URL to current database URL.
 
-step 5: in waste_detec.py, change the paths of secret.key , current_level.txt , and cred variable to current folder
+step 5: change the path in the cred variable in graph.py , give the path of the json file downloaded (current folder) 
+
+step 6: in waste_detec.py, change the paths of secret.key , current_level.txt , and cred variable to current folder
 
