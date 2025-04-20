@@ -7,15 +7,14 @@ import datetime
 import time
 import RPi.GPIO as GPIO
 
-# Firebase Admin SDK setup
 cred = credentials.Certificate('/home/pi/Desktop/SAI_VIDESH_WDS/trash-level-5397d-firebase-adminsdk-fbsvc-93e77e529a.json')
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://trash-level-5397d-default-rtdb.firebaseio.com/'  # Correct URL
+    'databaseURL': 'https://trash-level-5397d-default-rtdb.firebaseio.com/'
 })
 trash_ref = db.reference('trash_level')
-history_ref = db.reference('trash_level_history')  # Reference for history
+history_ref = db.reference('trash_level_history')
 
-# GPIO Pin Setup for Ultrasonic Sensor, Buzzer, and 7-Segment Display
+# GPIO Pin Setup
 TRIG = 23
 ECHO = 24
 BUZZER = 17
@@ -32,8 +31,6 @@ GPIO.setmode(GPIO.BCM)
 GPIO.setup(TRIG, GPIO.OUT)
 GPIO.setup(ECHO, GPIO.IN)
 GPIO.setup(BUZZER, GPIO.OUT)
-
-# Setup for 7-segment display
 GPIO.setup([SEG_A, SEG_B, SEG_C, SEG_D, SEG_E, SEG_F, SEG_G, SEG_DP], GPIO.OUT, initial=GPIO.LOW)
 
 MAX_LEVEL = 100
@@ -41,24 +38,20 @@ MIN_LEVEL = 15
 current_level = 0
 count_file = '/home/pi/current_level.txt'
 
-# Segments configuration for display (L, P, A, F)
 segment_map = {
-    'L': [1, 0, 1, 0, 1, 0, 1],  # 'L'
-    'P': [1, 1, 0, 1, 0, 1, 1],  # 'P'
-    'A': [1, 1, 1, 0, 0, 1, 1],  # 'A'
-    'F': [1, 1, 1, 1, 1, 0, 1]   # 'F'
+    'L': [1, 0, 1, 0, 1, 0, 1],
+    'P': [1, 1, 0, 1, 0, 1, 1],
+    'A': [1, 1, 1, 0, 0, 1, 1],
+    'F': [1, 1, 1, 1, 1, 0, 1]
 }
 
-# Key generation and loading
 def generate_and_save_key():
-    """Generate a new Fernet key and save it to a file."""
     key = Fernet.generate_key()
     with open("/home/pi/Desktop/SAI_VIDESH_WDS/secret.key", "wb") as key_file:
         key_file.write(key)
     print("New key generated and saved.")
 
 def load_key():
-    """Load the Fernet key from a file."""
     try:
         with open("/home/pi/Desktop/SAI_VIDESH_WDS/secret.key", "rb") as key_file:
             key = key_file.read()
@@ -67,27 +60,23 @@ def load_key():
         print("Key file not found. Please generate a new key.")
         return None
 
-# Encrypt data using Fernet encryption
 def encrypt_data(data):
-    """Encrypt data using Fernet."""
     key = load_key()
     if key is None:
         print("Error: No valid key found.")
         return None
     cipher_suite = Fernet(key)
-    encrypted_data = cipher_suite.encrypt(data.encode())  # Encrypt the data and return as bytes
-    return base64.b64encode(encrypted_data).decode()  # Base64 encode to make it suitable for storage/transfer
+    encrypted_data = cipher_suite.encrypt(data.encode())
+    return base64.b64encode(encrypted_data).decode()
 
-# Decrypt data using Fernet encryption
 def decrypt_data(encrypted_data):
-    """Decrypt data using Fernet."""
     key = load_key()
     if key is None:
         print("Error: No valid key found.")
         return None
     cipher_suite = Fernet(key)
-    encrypted_data = base64.b64decode(encrypted_data)  # Base64 decode the data
-    decrypted_data = cipher_suite.decrypt(encrypted_data).decode()  # Decrypt and return as string
+    encrypted_data = base64.b64decode(encrypted_data)
+    decrypted_data = cipher_suite.decrypt(encrypted_data).decode()
     return decrypted_data
 
 def load_level():
@@ -110,10 +99,8 @@ def update_firebase_level():
     print(f"Updated Firebase with trash level: {current_level}%")
 
 def log_trash_level_history(level, weight=None, product_type=None):
-    """Log the trash level with a timestamp, weight, and product type in Firebase history."""
-    timestamp = datetime.datetime.utcnow().isoformat()  # Get current UTC time in ISO format
+    timestamp = datetime.datetime.utcnow().isoformat()
     
-    # Prepare data to be encrypted
     history_data = {
         'level': level,
         'timestamp': timestamp
@@ -124,19 +111,16 @@ def log_trash_level_history(level, weight=None, product_type=None):
     if product_type is not None:
         history_data['product_type'] = product_type
     
-    # Encrypt the data
-    encrypted_data = encrypt_data(str(history_data))  # Encrypt the entire history_data as a string
+    encrypted_data = encrypt_data(str(history_data))
     
     if encrypted_data:
-        # Push encrypted data to Firebase
         encrypted_history_data = {
-            'encrypted_data': encrypted_data  # Store encrypted data
+            'encrypted_data': encrypted_data
         }
         history_ref.push(encrypted_history_data)
         print(f"Logged encrypted trash level data: {history_data} at {timestamp}")
 
 def increment_level_counter(level):
-    """Increment the counter for the given level in Firebase."""
     if level == 15:
         trash_ref.child('reached_15_percent').transaction(lambda current_value: (current_value or 0) + 1)
     elif level == 70:
@@ -161,100 +145,187 @@ def measure_distance():
     measured_distance = (duration * 34300) / 2
     return round(measured_distance, 2)
 
-def sound_buzzer(beep_duration=0.125, repeat=2):
-    """Beep the buzzer `repeat` times, each for `beep_duration` seconds."""
-    for _ in range(repeat):
-        GPIO.output(BUZZER, GPIO.HIGH)
-        time.sleep(beep_duration)
-        GPIO.output(BUZZER, GPIO.LOW)
-        time.sleep(0.125)
-
-def continuous_buzzer(beep_duration=1):
-    """Continuous beep for `beep_duration` seconds."""
-    GPIO.output(BUZZER, GPIO.HIGH)
-    time.sleep(beep_duration)
-    GPIO.output(BUZZER, GPIO.LOW)
+# Different buzzer patterns for various events
+def sound_buzzer_pattern(pattern_type):
+    if pattern_type == "object_detected":
+        for duration in [0.05, 0.1, 0.15]:
+            GPIO.output(BUZZER, GPIO.HIGH)
+            time.sleep(duration)
+            GPIO.output(BUZZER, GPIO.LOW)
+            time.sleep(0.05)
+    elif pattern_type == "trash_full":
+        for _ in range(3):
+            GPIO.output(BUZZER, GPIO.HIGH)
+            time.sleep(0.15)
+            GPIO.output(BUZZER, GPIO.LOW)
+            time.sleep(0.1)
+        for _ in range(3):
+            GPIO.output(BUZZER, GPIO.HIGH)
+            time.sleep(0.5)
+            GPIO.output(BUZZER, GPIO.LOW)
+            time.sleep(0.1)
+        for _ in range(3):
+            GPIO.output(BUZZER, GPIO.HIGH)
+            time.sleep(0.15)
+            GPIO.output(BUZZER, GPIO.LOW)
+            time.sleep(0.1)
+    elif pattern_type == "trash_reduced":
+        for duration in [0.5, 0.3, 0.2]:
+            GPIO.output(BUZZER, GPIO.HIGH)
+            time.sleep(duration)
+            GPIO.output(BUZZER, GPIO.LOW)
+            time.sleep(0.1)
+    elif pattern_type == "level_update":
+        for _ in range(2):
+            GPIO.output(BUZZER, GPIO.HIGH)
+            time.sleep(0.125)
+            GPIO.output(BUZZER, GPIO.LOW)
+            time.sleep(0.125)
 
 def display_segment(character):
-    """Displays the given character on the 7-segment display."""
     GPIO.output([SEG_A, SEG_B, SEG_C, SEG_D, SEG_E, SEG_F, SEG_G], GPIO.LOW)
     for pin, state in zip([SEG_A, SEG_B, SEG_C, SEG_D, SEG_E, SEG_F, SEG_G], segment_map[character]):
         GPIO.output(pin, state)
 
+# Handle trash bin overflow
 def remove_trash():
     global current_level
     print("⚡️ Trash reached 100%. Trash level automatically reduced to 15%.")
-    continuous_buzzer(beep_duration=2)  # Long beep for full trash can
-    time.sleep(1)  # Let the buzzer sound for a second
-    current_level = MIN_LEVEL  # Reset trash level to 15%
-    increment_level_counter(15)  # Increment counter for 15%
-    log_trash_level_history(current_level)  # Log the reset level
+    sound_buzzer_pattern("trash_full")
+    time.sleep(1)
+    current_level = MIN_LEVEL
+    increment_level_counter(15)
+    log_trash_level_history(current_level)
+    sound_buzzer_pattern("trash_reduced")
 
-def update_trash_level(weight=None, product_type=None):
+# Update trash level and handle threshold events
+def update_trash_level(increment_amount, weight=None, product_type=None):
     global current_level
-    current_level += 5  # Increment trash level by 5%
-    if current_level >= MAX_LEVEL:
-        display_segment('F')  # Display "Full" (F) on 7-segment display
-        sound_buzzer(beep_duration=1, repeat=1)  # Long beep for "full"
-        increment_level_counter(100)  # Increment counter for 100%
-        log_trash_level_history(current_level, weight, product_type)  # Log the level at 100% with weight and type
-        remove_trash()  # Reset trash level to 15%
-    elif current_level >= 90:
-        display_segment('A')  # Display "Almost full" (A)
-        increment_level_counter(90)  # Increment counter for 90%
-        log_trash_level_history(current_level, weight, product_type)  # Log the level at 90%
-    elif current_level >= 70:
-        display_segment('P')  # Display "Partial" (P)
-        increment_level_counter(70)  # Increment counter for 70%
-        log_trash_level_history(current_level, weight, product_type)  # Log the level at 70%
+    
+    old_level = current_level
+    current_level += increment_amount
+    
+    if current_level > MAX_LEVEL:
+        current_level = MAX_LEVEL
+    
+    print(f"Trash level increased by {increment_amount:.1f}%. New level: {current_level:.1f}%")
+    
+    if current_level >= MAX_LEVEL and old_level < MAX_LEVEL:
+        display_segment('F')
+        increment_level_counter(100)
+        log_trash_level_history(current_level, weight, product_type)
+        remove_trash()
+    elif current_level >= 90 and old_level < 90:
+        display_segment('A')
+        increment_level_counter(90)
+        log_trash_level_history(current_level, weight, product_type)
+    elif current_level >= 70 and old_level < 70:
+        display_segment('P')
+        increment_level_counter(70)
+        log_trash_level_history(current_level, weight, product_type)
     else:
-        display_segment('L')  # Display "Low" (L)
-        log_trash_level_history(current_level, weight, product_type)  # Log the level at Low
+        display_segment('L')
+        log_trash_level_history(current_level, weight, product_type)
 
-    print(f"Trash level increased by 5%. New level: {current_level:.2f}%")
-
-# Load the previous trash level when the script starts
+# Initialize system
 load_level()
 
-# Flag to prevent repeated Firebase updates
-firebase_updated = False
+if current_level >= 100:
+    display_segment('F')
+elif current_level >= 90:
+    display_segment('A')
+elif current_level >= 70:
+    display_segment('P')
+else:
+    display_segment('L')
 
+# Main program loop
 try:
     while True:
-        current_distance = measure_distance()
-
-        if current_distance < 10:  # Object detected
-            print("Object detected! Beeping now.")
-
-            # Beep immediately when an object is detected
-            sound_buzzer(beep_duration=0.5, repeat=1)
-
-            # Ask for weight of the object
-            weight = float(input("Enter the weight of the product in kg: "))
-
-            # Ask if the product is biodegradable or not
-            product_type = input("Is this product biodegradable or non-biodegradable? ").strip().lower()
-
-            # Increase trash level by 5% when object is detected
-            update_trash_level(weight, product_type)
-
-            if current_level >= 100:
-                # Continuous beep for full trash can
-                continuous_buzzer(beep_duration=2)
-            else:
-                # Beep twice for 0.125 seconds each
-                sound_buzzer(beep_duration=0.125, repeat=2)
-
-            # Update Firebase if it hasn't been updated in this detection
-            if not firebase_updated:
-                save_level()
-                update_firebase_level()
-                firebase_updated = True  # Prevent further updates for this detection
-
-        if current_distance >= 10 and firebase_updated:
-            firebase_updated = False
-
-        time.sleep(1)  # Adjust sleep time for sensor polling
+        print("\n===== SMART TRASH MONITORING SYSTEM =====")
+        print(f"Current Trash Level: {current_level:.1f}%")
+        print("1. Manual mode (fixed 5% increment)")
+        print("2. Distance-based mode (increment based on distance)")
+        choice = input("Choose mode (1 or 2): ")
+        
+        if choice == '1':
+            print("Please place the object in front of the sensor...")
+            object_detected = False
+            
+            for _ in range(30):
+                distance = measure_distance()
+                if distance < 10:
+                    object_detected = True
+                    sound_buzzer_pattern("object_detected")
+                    print("Object detected!")
+                    
+                    weight = float(input("Enter the weight of the product in kg: "))
+                    product_type = input("Is this product biodegradable or non-biodegradable? ").strip().lower()
+                    
+                    update_trash_level(5, weight, product_type)
+                    sound_buzzer_pattern("level_update")
+                    
+                    save_level()
+                    update_firebase_level()
+                    break
+                
+                time.sleep(1)
+                print(".", end="", flush=True)
+            
+            if not object_detected:
+                print("\nNo object detected within timeout period.")
+        
+        elif choice == '2':
+            print("Please place the object in front of the sensor...")
+            object_detected = False
+            
+            for _ in range(30):
+                distance = measure_distance()
+                if distance < 10:
+                    object_detected = True
+                    sound_buzzer_pattern("object_detected")
+                    print(f"Object detected at distance: {distance:.1f} cm!")
+                    
+                    increment_amount = min(10 + (10 - distance) * 9, 85)
+                    
+                    product_type = input("Is this product biodegradable or non-biodegradable? ").strip().lower()
+                    
+                    estimated_weight = (10 - distance) / 2
+                    
+                    update_trash_level(increment_amount, estimated_weight, product_type)
+                    sound_buzzer_pattern("level_update")
+                    
+                    save_level()
+                    update_firebase_level()
+                    break
+                
+                time.sleep(1)
+                print(".", end="", flush=True)
+            
+            if not object_detected:
+                print("\nNo object detected within timeout period.")
+        
+        else:
+            print("Invalid choice. Please enter 1 or 2.")
 
 except KeyboardInterrupt:
     GPIO.cleanup()
+    print("\nProgram terminated by user.")
+
+
+'''Us sensor:
+Vcc - 5v, gnd to gnd , trig to gpio 23 , actually to gpio24
+
+Buzzer: 5v to 5v , gnd to gnd , control pin(relay) to gpio 17
+
+# 7-Segment Display (Common Cathode):
+
+# Segment A → GPIO 5 
+# Segment B → GPIO 6 
+# Segment C → GPIO 13 
+# Segment D → GPIO 19 
+# Segment E → GPIO 26 
+# Segment F → GPIO 21 
+# Segment G → GPIO 20 
+# Decimal Point → GPIO 16 
+# Common pin → Ground pin on Raspberry Pi '''
